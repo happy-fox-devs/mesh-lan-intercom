@@ -2,7 +2,7 @@
 
 **Decentralized, Off-Grid Voice Communication System for Android**
 
-![Version](https://img.shields.io/badge/Version-1.0.4-blue) ![License](https://img.shields.io/badge/License-MIT-green) ![Platform](https://img.shields.io/badge/Platform-Android%208%2B-3DDC84)
+![Version](https://img.shields.io/badge/Version-1.0.5-blue) ![License](https://img.shields.io/badge/License-MIT-green) ![Platform](https://img.shields.io/badge/Platform-Android%208%2B-3DDC84)
 
 > **"Communicate without internet, without servers, with total privacy."**
 
@@ -13,8 +13,6 @@
 Perfect for:
 - 🏍️ **Motorcycle Convoys** - Hands-free communication while riding
 - 🏕️ **Camping & Hiking** - Stay connected in remote areas
-- 🚨 **Emergency Scenarios** - Communicate when networks are down
-- 🎮 **Gaming Groups** - Local multiplayer coordination
 
 ## ✨ Key Features
 
@@ -25,10 +23,10 @@ Perfect for:
 - **🎧 Bluetooth Headset Support:** Automatic SCO/HFP routing for hands-free operation
 - **🌙 Background Operation:** Foreground service keeps audio running with screen off
 - **🦊 Custom Identity:** Persistent nicknames with real-time peer list visualization
-- **🌍 Bilingual UI:** Full support for English and Spanish
+- **🌍 Multilingual UI:** Full support for English and Spanish
 
 ### Advanced Features
-- **� Auto-Updater:** Over-the-air updates via GitHub Releases (no Play Store required)
+- **🔄 Auto-Updater:** Over-the-air updates via GitHub Releases (no Play Store required)
 - **🎨 Modern Dark UI:** Cyber-aesthetic with Material 3 and Jetpack Compose
 - **🔇 Mute/Deafen Controls:** Independent microphone and speaker muting
 - **📱 Zero Configuration:** Just set a secret word, nickname, and start
@@ -83,10 +81,9 @@ Perfect for:
 3. **Return to Home** and configure:
    - **Secret Word**: Your private channel identifier (e.g., "CONVOY_ALPHA")
    - **Nickname**: How you'll appear to others (e.g., "Rider_01")
-4. **Save** your configuration (💾 icons)
 
 ### Starting Communication
-1. Press the **Power Button** (🔴 → 🟢)
+1. Press the **Power Button**
 2. Wait for peers with the same secret word to appear in the list
 3. **Speak freely** - audio is full-duplex (always-on)
 
@@ -145,4 +142,4 @@ For issues, questions, or feature requests:
 
 ---
 
-**Built with ❤️ by the Happy Fox Devs team**
+**Built with ❤️ by the HappyFox Devs team**

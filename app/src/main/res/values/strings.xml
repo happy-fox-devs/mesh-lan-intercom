@@ -25,7 +25,7 @@
 
     <!-- Updates -->
     <string name="settings_updates">Updates</string>
-    <string name="btn_check_update">🔄 Check for Updates</string>
+    <string name="btn_check_update">Check for Updates</string>
     <string name="update_checking">Checking for updates...</string>
     <string name="update_no_update">No updates available</string>
     <string name="update_available">Update available: %s</string>
