@@ -12,8 +12,8 @@ android {
         applicationId = "com.meshlanintercom"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -22,6 +22,14 @@ android {
                 cppFlags += "-std=c++17"
                 arguments("-DANDROID_STL=c++_shared")
             }
+        }
+    }
+
+    // Rename APK logic
+    applicationVariants.all {
+        outputs.all {
+            // outputFileName is mutable in ApkVariantOutput
+            (this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl)?.outputFileName = "mesh-lan-intercom.apk"
         }
     }
 
