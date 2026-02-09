@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Mesh Intercom</string>
+    <string name="app_name">Mesh LAN Intercom</string>
     <string name="app_title_small">MESH LAN INTERCOM</string>
     <string name="app_title_large">LAN Intercom</string>
     <string name="setup_channel_header">Set up your channel</string>

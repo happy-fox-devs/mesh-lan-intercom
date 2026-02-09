@@ -14,7 +14,7 @@ Java_com_meshintercom_MainActivity_stringFromJNI(
 }
 
 static JavaVM *gJvm = nullptr;
-static jobject gMainActivityObject = nullptr;
+static jobject gServiceObject = nullptr;
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     gJvm = vm;
@@ -22,16 +22,16 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_meshintercom_MainActivity_nativeInitJni(JNIEnv *env, jobject thiz) {
-    if (gMainActivityObject != nullptr) {
-        env->DeleteGlobalRef(gMainActivityObject);
+Java_com_meshintercom_MeshService_nativeInitJni(JNIEnv *env, jobject thiz) {
+    if (gServiceObject != nullptr) {
+        env->DeleteGlobalRef(gServiceObject);
     }
-    gMainActivityObject = env->NewGlobalRef(thiz);
+    gServiceObject = env->NewGlobalRef(thiz);
 }
 
 // Callback called from Audio Thread (C++)
 void onAudioEncoded(const uint8_t *data, int32_t size) {
-    if (gJvm == nullptr || gMainActivityObject == nullptr) return;
+    if (gJvm == nullptr || gServiceObject == nullptr) return;
 
     JNIEnv *env;
     int getEnvStat = gJvm->GetEnv((void **) &env, JNI_VERSION_1_6);
@@ -43,13 +43,13 @@ void onAudioEncoded(const uint8_t *data, int32_t size) {
     }
 
     // Call Kotlin method: onNativeAudioData(ByteArray)
-    jclass clazz = env->GetObjectClass(gMainActivityObject);
+    jclass clazz = env->GetObjectClass(gServiceObject);
     jmethodID methodId = env->GetMethodID(clazz, "onNativeAudioData", "([B)V");
 
     if (methodId != nullptr) {
         jbyteArray retArray = env->NewByteArray(size);
         env->SetByteArrayRegion(retArray, 0, size, (jbyte *) data);
-        env->CallVoidMethod(gMainActivityObject, methodId, retArray);
+        env->CallVoidMethod(gServiceObject, methodId, retArray);
         env->DeleteLocalRef(retArray);
     }
 
@@ -59,7 +59,7 @@ void onAudioEncoded(const uint8_t *data, int32_t size) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_meshintercom_MainActivity_nativeStartAudio(JNIEnv *env, jobject thiz) {
+Java_com_meshintercom_MeshService_nativeStartAudio(JNIEnv *env, jobject thiz) {
     if (audioEngine == nullptr) {
         audioEngine = new AudioEngine();
         audioEngine->setAudioCallback(onAudioEncoded);
@@ -68,7 +68,7 @@ Java_com_meshintercom_MainActivity_nativeStartAudio(JNIEnv *env, jobject thiz) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_meshintercom_MainActivity_nativeInjectAudioPacket(JNIEnv *env, jobject thiz,
+Java_com_meshintercom_MeshService_nativeInjectAudioPacket(JNIEnv *env, jobject thiz,
                                                            jbyteArray data) {
     if (audioEngine == nullptr) return;
 
@@ -81,7 +81,7 @@ Java_com_meshintercom_MainActivity_nativeInjectAudioPacket(JNIEnv *env, jobject 
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_meshintercom_MainActivity_nativeStopAudio(JNIEnv *env, jobject thiz) {
+Java_com_meshintercom_MeshService_nativeStopAudio(JNIEnv *env, jobject thiz) {
     if (audioEngine != nullptr) {
         audioEngine->stop();
         delete audioEngine;

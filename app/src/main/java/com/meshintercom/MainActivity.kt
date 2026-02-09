@@ -1,11 +1,14 @@
 package com.meshintercom
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
+import android.os.IBinder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,7 +28,6 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.HeadsetOff
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
@@ -38,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -46,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.os.LocaleListCompat
-import java.util.Locale
+import com.meshlanintercom.R
 import kotlinx.coroutines.launch
 
 // --- Custom Colors ---
@@ -57,90 +58,94 @@ val InactiveGrey = Color(0xFF536471)
 val TextColor = Color(0xFFE7E9EA)
 
 class MainActivity : AppCompatActivity() {
-    private var meshManager: MeshNetworkManager? = null
 
-    // Audio Control States
-    var isMicMuted = false
-    var isDeafened = false
+    // Use MutableState to trigger recomposition on bind
+    private val _meshService = mutableStateOf<MeshService?>(null)
+
+    private val connection =
+        object : ServiceConnection {
+            override fun onServiceConnected(className: ComponentName, service: IBinder) {
+                val binder = service as MeshService.LocalBinder
+                _meshService.value = binder.getService()
+            }
+
+            override fun onServiceDisconnected(arg0: ComponentName) {
+                _meshService.value = null
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        meshManager = MeshNetworkManager(this)
+        // Bind to MeshService
+        Intent(this, MeshService::class.java).also { intent ->
+            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        }
 
         setContent {
             var peersList by remember { mutableStateOf(emptyList<String>()) }
+            var isAudioActive by remember { mutableStateOf(false) } // From Service
 
-            // Observe peers from MeshManager
-            DisposableEffect(Unit) {
-                meshManager?.onPeersChanged = { peers ->
-                    peersList = peers
+            // Observe the Service instance state
+            val currentService = _meshService.value
+
+            LaunchedEffect(currentService) {
+                if (currentService != null) {
+                    launch { currentService.peers.collect { peersList = it } }
+                    launch { currentService.isAudioRunning.collect { isAudioActive = it } }
                 }
-                onDispose { }
             }
 
             MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = DarkBackground,
-                    surface = SurfaceColor,
-                    primary = NeonGreen,
-                    onBackground = TextColor,
-                    onSurface = TextColor
-                )
+                colorScheme =
+                    darkColorScheme(
+                        background = DarkBackground,
+                        surface = SurfaceColor,
+                        primary = NeonGreen,
+                        onBackground = TextColor,
+                        onSurface = TextColor
+                    )
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    // Pass state explicitly to avoid passing nullable service
                     MainNavigationWrapper(
                         peers = peersList,
+                        isAudioRunningState = isAudioActive, // New parameter to drive UI state
                         onStartAudio = { secret, nickname ->
-                            meshManager?.start(secret, nickname)
-                            nativeStartAudio()
+                            val intent =
+                                Intent(this@MainActivity, MeshService::class.java).apply {
+                                    action = MeshService.ACTION_START_AUDIO
+                                    putExtra(MeshService.EXTRA_SECRET, secret)
+                                    putExtra(MeshService.EXTRA_NICKNAME, nickname)
+                                }
+                            startService(intent) // Start Foreground Service
                         },
                         onStopAudio = {
-                            nativeStopAudio()
-                            meshManager?.stop()
+                            val intent =
+                                Intent(this@MainActivity, MeshService::class.java).apply {
+                                    action = MeshService.ACTION_STOP_AUDIO
+                                }
+                            startService(intent) // Send Stop action
                         },
                         context = this,
-                        onMicMuteToggle = { muted -> isMicMuted = muted },
+                        onMicMuteToggle = { muted -> _meshService.value?.isMicMuted = muted },
                         onDeafenToggle = { deafened ->
-                            isDeafened = deafened
+                            _meshService.value?.isDeafened = deafened
                         }
                     )
                 }
             }
         }
-
-        meshManager?.onAudioPacketReceived = { data ->
-            if (!isDeafened) {
-                nativeInjectAudioPacket(data)
-            }
-        }
-
-        nativeInitJni()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        nativeStopAudio()
-        meshManager?.stop()
-    }
-
-    fun onNativeAudioData(data: ByteArray) {
-        if (isMicMuted || isDeafened) return
-        meshManager?.sendAudioPacket(data)
-    }
-
-    external fun stringFromJNI(): String
-    external fun nativeStartAudio()
-    external fun nativeStopAudio()
-    external fun nativeInjectAudioPacket(data: ByteArray)
-    external fun nativeInitJni()
-
-    companion object {
-        init {
-            System.loadLibrary("meshintercom")
+        if (_meshService.value != null) {
+            unbindService(connection)
+            _meshService.value = null
         }
     }
 }
@@ -148,6 +153,7 @@ class MainActivity : AppCompatActivity() {
 @Composable
 fun MainNavigationWrapper(
     peers: List<String>,
+    isAudioRunningState: Boolean,
     onStartAudio: (String, String) -> Unit,
     onStopAudio: () -> Unit,
     context: Context,
@@ -206,6 +212,7 @@ fun MainNavigationWrapper(
             if (currentScreen == "Home") {
                 MeshIntercomApp(
                     peers = peers,
+                    isAudioRunningState = isAudioRunningState,
                     onStartAudio = onStartAudio,
                     onStopAudio = onStopAudio,
                     context = context,
@@ -214,11 +221,7 @@ fun MainNavigationWrapper(
                     onOpenDrawer = { scope.launch { drawerState.open() } }
                 )
             } else {
-                SettingsScreen(
-                    onBack = {
-                        currentScreen = "Home"
-                    }
-                )
+                SettingsScreen(onBack = { currentScreen = "Home" })
             }
         }
     }
@@ -265,40 +268,44 @@ fun LanguageOption(name: String, code: String?) {
     val context = LocalContext.current
     val currentLocales = AppCompatDelegate.getApplicationLocales()
     val isSelected =
-        if (code == null) currentLocales.isEmpty else currentLocales.toLanguageTags().contains(code)
+        if (code == null) currentLocales.isEmpty
+        else currentLocales.toLanguageTags().contains(code)
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                val localeList = if (code != null) {
-                    LocaleListCompat.forLanguageTags(code)
-                } else {
-                    LocaleListCompat.getEmptyLocaleList()
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val localeList =
+                        if (code != null) {
+                            LocaleListCompat.forLanguageTags(code)
+                        } else {
+                            LocaleListCompat.getEmptyLocaleList()
+                        }
+                    AppCompatDelegate.setApplicationLocales(localeList)
                 }
-                AppCompatDelegate.setApplicationLocales(localeList)
-            }
-            .padding(vertical = 12.dp),
+                .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         RadioButton(
             selected = isSelected,
             onClick = null, // Handled by Row
-            colors = RadioButtonDefaults.colors(
-                selectedColor = NeonGreen,
-                unselectedColor = InactiveGrey
-            )
+            colors =
+                RadioButtonDefaults.colors(
+                    selectedColor = NeonGreen,
+                    unselectedColor = InactiveGrey
+                )
         )
         Spacer(modifier = Modifier.width(16.dp))
         Text(text = name, color = TextColor, style = MaterialTheme.typography.bodyLarge)
     }
 }
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MeshIntercomApp(
     peers: List<String>,
+    isAudioRunningState: Boolean,
     onStartAudio: (String, String) -> Unit,
     onStopAudio: () -> Unit,
     context: Context,
@@ -306,7 +313,9 @@ fun MeshIntercomApp(
     onDeafenToggle: (Boolean) -> Unit,
     onOpenDrawer: () -> Unit
 ) {
-    var isAudioRunning by remember { mutableStateOf(false) }
+    // isAudioRunning is now driven by the Service (isAudioRunningState)
+    val isAudioRunning = isAudioRunningState
+
     var isMicMuted by remember { mutableStateOf(false) }
     var isDeafened by remember { mutableStateOf(false) }
 
@@ -318,9 +327,7 @@ fun MeshIntercomApp(
     // Nickname State
     val randomName = "User_${(1000..9999).random()}"
     var nickname by remember {
-        mutableStateOf(
-            prefs.getString("nickname", randomName) ?: randomName
-        )
+        mutableStateOf(prefs.getString("nickname", randomName) ?: randomName)
     }
 
     // Permission State
@@ -329,39 +336,42 @@ fun MeshIntercomApp(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
-        ).apply {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                add(Manifest.permission.BLUETOOTH_SCAN)
-                add(Manifest.permission.BLUETOOTH_ADVERTISE)
-                add(Manifest.permission.BLUETOOTH_CONNECT)
+        )
+            .apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    add(Manifest.permission.BLUETOOTH_SCAN)
+                    add(Manifest.permission.BLUETOOTH_ADVERTISE)
+                    add(Manifest.permission.BLUETOOTH_CONNECT)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    add(Manifest.permission.NEARBY_WIFI_DEVICES)
+                    add(Manifest.permission.POST_NOTIFICATIONS)
+                }
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            }
-        }.toTypedArray()
+            .toTypedArray()
     }
 
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissionsMap ->
-        val allGranted = permissionsMap.values.all { it }
-    }
+    val launcher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissionsMap ->
+            val allGranted = permissionsMap.values.all { it }
+        }
 
-    LaunchedEffect(Unit) {
-        launcher.launch(permissions)
-    }
+    LaunchedEffect(Unit) { launcher.launch(permissions) }
 
     // Colors for Inputs
-    val inputColors = TextFieldDefaults.colors(
-        focusedContainerColor = SurfaceColor,
-        unfocusedContainerColor = SurfaceColor,
-        disabledContainerColor = SurfaceColor.copy(alpha = 0.5f),
-        focusedTextColor = TextColor,
-        unfocusedTextColor = TextColor,
-        cursorColor = NeonGreen,
-        focusedIndicatorColor = Color.Transparent, // Remove underline
-        unfocusedIndicatorColor = Color.Transparent
-    )
+    val inputColors =
+        TextFieldDefaults.colors(
+            focusedContainerColor = SurfaceColor,
+            unfocusedContainerColor = SurfaceColor,
+            disabledContainerColor = SurfaceColor.copy(alpha = 0.5f),
+            focusedTextColor = TextColor,
+            unfocusedTextColor = TextColor,
+            cursorColor = NeonGreen,
+            focusedIndicatorColor = Color.Transparent, // Remove underline
+            unfocusedIndicatorColor = Color.Transparent
+        )
 
     Column(
         modifier = Modifier
@@ -376,17 +386,16 @@ fun MeshIntercomApp(
                 .padding(top = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onOpenDrawer
-            ) {
+            IconButton(onClick = onOpenDrawer) {
                 Icon(Icons.Filled.Menu, contentDescription = "Menu", tint = InactiveGrey)
             }
 
             Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (isAudioRunning) NeonGreen else InactiveGrey)
+                modifier =
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (isAudioRunning) NeonGreen else InactiveGrey)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
@@ -405,18 +414,16 @@ fun MeshIntercomApp(
                 prefs.edit().putString("secret_word", it).apply()
             },
             placeholder = {
-                Text(
-                    stringResource(R.string.secret_channel_hint),
-                    color = InactiveGrey
-                )
+                Text(stringResource(R.string.secret_channel_hint), color = InactiveGrey)
             },
             leadingIcon = { Text("#", color = InactiveGrey, fontSize = 18.sp) },
             enabled = !isAudioRunning,
             singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp)),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp)),
             colors = inputColors
         )
         Spacer(modifier = Modifier.height(16.dp))
@@ -428,7 +435,9 @@ fun MeshIntercomApp(
                 nickname = it
                 prefs.edit().putString("nickname", it).apply()
             },
-            placeholder = { Text(stringResource(R.string.nickname_hint), color = InactiveGrey) },
+            placeholder = {
+                Text(stringResource(R.string.nickname_hint), color = InactiveGrey)
+            },
             leadingIcon = {
                 Icon(
                     Icons.Filled.PowerSettingsNew,
@@ -530,20 +539,19 @@ fun MeshIntercomApp(
             BigPowerButton(
                 isAudioRunning = isAudioRunning,
                 onClick = {
-                    val allGranted = permissions.all {
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            it
-                        ) == PackageManager.PERMISSION_GRANTED
-                    }
+                    val allGranted =
+                        permissions.all {
+                            ContextCompat.checkSelfPermission(context, it) ==
+                                    PackageManager.PERMISSION_GRANTED
+                        }
                     if (secretWord.isNotBlank() && nickname.isNotBlank()) {
                         if (allGranted) {
                             if (isAudioRunning) {
                                 onStopAudio()
-                                isAudioRunning = false
+                                // isAudioRunning = false // Removed: State driven by Service
                             } else {
                                 onStartAudio(secretWord, nickname)
-                                isAudioRunning = true
+                                // isAudioRunning = true // Removed: State driven by Service
                             }
                         } else {
                             launcher.launch(permissions)
@@ -572,35 +580,32 @@ fun MeshIntercomApp(
     }
 }
 
-
 @Composable
 fun PeerCard(name: String, isMe: Boolean, isActive: Boolean) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isMe) NeonGreen.copy(alpha = 0.1f) else SurfaceColor)
-            .border(
-                1.dp,
-                if (isMe) NeonGreen.copy(alpha = 0.3f) else Color.Transparent,
-                RoundedCornerShape(8.dp)
-            )
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (isMe) NeonGreen.copy(alpha = 0.1f) else SurfaceColor)
+                .border(
+                    1.dp,
+                    if (isMe) NeonGreen.copy(alpha = 0.3f) else Color.Transparent,
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(if (isActive) NeonGreen else InactiveGrey)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
         // Avatar placeholder
         Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(if (isMe) NeonGreen.copy(alpha = 0.2f) else InactiveGrey.copy(alpha = 0.2f)),
+            modifier =
+                Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isMe) NeonGreen.copy(alpha = 0.2f)
+                        else InactiveGrey.copy(alpha = 0.2f)
+                    ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -654,18 +659,22 @@ fun BigPowerButton(isAudioRunning: Boolean, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         shape = CircleShape,
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent), // We draw custom
+        colors =
+            ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent
+            ), // We draw custom
         modifier = Modifier.size(100.dp),
         contentPadding = PaddingValues(0.dp)
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .border(4.dp, borderColor.value, CircleShape)
-                .border(8.dp, DarkBackground, CircleShape) // Inner gap
-                .clip(CircleShape)
-                .background(circleColor.value)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .border(4.dp, borderColor.value, CircleShape)
+                    .border(8.dp, DarkBackground, CircleShape) // Inner gap
+                    .clip(CircleShape)
+                    .background(circleColor.value)
         ) {
             Icon(
                 imageVector = Icons.Filled.PowerSettingsNew,

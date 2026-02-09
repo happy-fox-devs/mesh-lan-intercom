@@ -1,14 +1,15 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
-    namespace = "com.meshintercom"
+    namespace = "com.meshlanintercom"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.meshintercom"
+        applicationId = "com.meshlanintercom"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -35,7 +36,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        // jvmTarget = "1.8" // Deprecated, removing to fix build
     }
     externalNativeBuild {
         cmake {
@@ -49,7 +50,7 @@ android {
         prefab = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.4"
+        // kotlinCompilerExtensionVersion = "1.5.4" // Deprecated in Kotlin 2.0
     }
 }
 
@@ -79,4 +80,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+}
+
+// Force Kotlin JVM target to 1.8 to match Java sourceCompatibility
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+    }
 }
