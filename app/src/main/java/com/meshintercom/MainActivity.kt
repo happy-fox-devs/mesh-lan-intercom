@@ -271,6 +271,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(vertical = 24.dp)
         )
 
+        // Version Display
+        Text(
+                text = "Version: ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.bodySmall,
+                color = InactiveGrey,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Updates Section
         Text(
                 text = stringResource(R.string.settings_updates),
