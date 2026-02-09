@@ -13,8 +13,6 @@
 Ideal for:
 - 🏍️ Motorcycle Convoys
 - 🏕️ Camping & Hiking
-- 🏗️ Construction Sites
-- 🆘 Emergency Situations (Disaster Relief)
 
 ## ✨ Key Features
 
@@ -54,16 +52,3 @@ Ideal for:
 3.  **Start Engine:** Press the large **Red Power Button**. It will turn **Green**.
 4.  **Connect:** Wait for peers to appear in the list.
 5.  **Talk:** Just speak! The audio is always-on (Full Duplex).
-
-## 📄 License & Credits
-
-**Copyright © 2026 Adrian.**
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-*   **Author:** Adrian
-*   **Rights:** You are free to use, modify, and distribute this software, provided that the original copyright notice and this permission notice are included in all copies.
-*   **Commercial Use:** Allowed.
-
----
-*Built with ❤️ and C++ by Adrian.*
