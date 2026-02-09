@@ -22,4 +22,14 @@
     <string name="language_auto">Automatic (System)</string>
     <string name="language_en">English</string>
     <string name="language_es">Español</string>
+
+    <!-- Updates -->
+    <string name="settings_updates">Updates</string>
+    <string name="btn_check_update">Check for Updates</string>
+    <string name="update_checking">Checking for updates...</string>
+    <string name="update_no_update">No updates available</string>
+    <string name="update_available">Update available: %s</string>
+    <string name="update_downloading">Downloading update...</string>
+    <string name="update_error">Error checking for updates</string>
+    <string name="update_install">Install Update</string>
 </resources>

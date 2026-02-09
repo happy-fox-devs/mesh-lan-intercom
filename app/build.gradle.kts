@@ -48,6 +48,7 @@ android {
         viewBinding = true
         compose = true
         prefab = true
+        buildConfig = true
     }
     composeOptions {
         // kotlinCompilerExtensionVersion = "1.5.4" // Deprecated in Kotlin 2.0
@@ -76,6 +77,9 @@ dependencies {
 
     // Oboe (Audio)
     implementation("com.google.oboe:oboe:1.9.0")
+
+    // OkHttp (Networking)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
