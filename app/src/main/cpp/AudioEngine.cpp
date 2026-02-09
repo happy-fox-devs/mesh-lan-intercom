@@ -6,7 +6,7 @@
 AudioEngine::AudioEngine() {
     // Initialize OpusCoder
     opusCoder = new OpusCoder(sampleRate, channelCount);
-    
+
     // Resize buffers
     pcmInputBuffer.resize(OPUS_FRAME_SIZE);
     encodedBuffer.resize(4000); // 4KB is enough for one Opus packet
@@ -34,7 +34,8 @@ void AudioEngine::stop() {
     closeStream(playbackStream);
 }
 
-oboe::Result AudioEngine::startStream(std::shared_ptr<oboe::AudioStream> &stream, oboe::Direction direction) {
+oboe::Result
+AudioEngine::startStream(std::shared_ptr<oboe::AudioStream> &stream, oboe::Direction direction) {
     oboe::AudioStreamBuilder builder;
     builder.setDirection(direction)
             ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
@@ -42,7 +43,7 @@ oboe::Result AudioEngine::startStream(std::shared_ptr<oboe::AudioStream> &stream
             ->setFormat(oboe::AudioFormat::Float)
             ->setChannelCount(channelCount)
             ->setSampleRate(sampleRate)
-            // Fix frame size to match Opus (or handle buffering, but fixed is easier for test)
+                    // Fix frame size to match Opus (or handle buffering, but fixed is easier for test)
             ->setFramesPerDataCallback(OPUS_FRAME_SIZE);
 
     if (direction == oboe::Direction::Input) {
@@ -52,13 +53,15 @@ oboe::Result AudioEngine::startStream(std::shared_ptr<oboe::AudioStream> &stream
 
     oboe::Result result = builder.openStream(stream);
     if (result != oboe::Result::OK) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "Error opening stream: %s", oboe::convertToText(result));
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "Error opening stream: %s",
+                            oboe::convertToText(result));
         return result;
     }
 
     result = stream->requestStart();
     if (result != oboe::Result::OK) {
-        __android_log_print(ANDROID_LOG_ERROR, TAG, "Error starting stream: %s", oboe::convertToText(result));
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "Error starting stream: %s",
+                            oboe::convertToText(result));
         closeStream(stream);
         return result;
     }
@@ -78,19 +81,19 @@ void AudioEngine::setAudioCallback(AudioCallback callback) {
     this->audioCallback = callback;
 }
 
-void AudioEngine::injectAudioPacket(const uint8_t* data, int32_t size) {
+void AudioEngine::injectAudioPacket(const uint8_t *data, int32_t size) {
     if (!opusCoder) return;
-    
+
     // Decode incoming packet immediately (Jitter Buffer should go here normally)
     int samplesDecoded = opusCoder->decode(data, size, pcmOutputBuffer.data(), OPUS_FRAME_SIZE);
-    
+
     if (samplesDecoded > 0) {
-         for (int i = 0; i < samplesDecoded; ++i) {
+        for (int i = 0; i < samplesDecoded; ++i) {
             floatOutputBuffer[i] = static_cast<float>(pcmOutputBuffer[i]) / 32768.0f;
         }
-        
+
         if (playbackStream && playbackStream->getState() == oboe::StreamState::Started) {
-            playbackStream->write(floatOutputBuffer.data(), samplesDecoded, 0); 
+            playbackStream->write(floatOutputBuffer.data(), samplesDecoded, 0);
         }
     }
 }
@@ -99,17 +102,18 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream *oboeStream
                                                    void *audioData,
                                                    int32_t numFrames) {
     // 1. Capture & Convert
-    float *inputFloats = static_cast<float*>(audioData);
+    float *inputFloats = static_cast<float *>(audioData);
     for (int i = 0; i < numFrames; ++i) {
         int sample = static_cast<int>(inputFloats[i] * 32767.0f);
         if (sample > 32767) sample = 32767;
         if (sample < -32768) sample = -32768;
         pcmInputBuffer[i] = static_cast<int16_t>(sample);
     }
-    
+
     // 2. Encode
-    int bytesEncoded = opusCoder->encode(pcmInputBuffer.data(), numFrames, encodedBuffer.data(), encodedBuffer.size());
-    
+    int bytesEncoded = opusCoder->encode(pcmInputBuffer.data(), numFrames, encodedBuffer.data(),
+                                         encodedBuffer.size());
+
     // 3. Send to Network (via Callback) instead of Loopback
     if (bytesEncoded > 0 && audioCallback) {
         audioCallback(encodedBuffer.data(), bytesEncoded);

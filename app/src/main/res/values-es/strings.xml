@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">Mesh Intercom</string>
+    <string name="app_title_small">MESH LAN INTERCOM</string>
+    <string name="app_title_large">Intercomunicador LAN</string>
+    <string name="setup_channel_header">Configura tu canal</string>
+    <string name="secret_channel_hint"># Sala (Secreta)</string>
+    <string name="nickname_hint">Apodo</string>
+    <string name="connected_peers">CONECTADOS</string>
+    <string name="disconnected_status">DESCONECTADO</string>
+    <string name="connect_instructions">Ingresa sala y apodo para conectar</string>
+    <string name="you_suffix">(Yo)</string>
+
+    <!-- Menu -->
+    <string name="menu_home">Inicio</string>
+    <string name="menu_settings">Ajustes</string>
+    <string name="menu_app_settings">Ajustes de App</string>
+    <string name="menu_user_settings">Ajustes de Usuario</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Configuración</string>
+    <string name="settings_language">Idioma</string>
+    <string name="language_auto">Automático (Sistema)</string>
+    <string name="language_en">English</string>
+    <string name="language_es">Español</string>
+</resources>
