@@ -30,7 +30,19 @@ class MeshService : Service() {
 
     // Audio Control States
     var isMicMuted = false
+        set(value) {
+            field = value
+            updateNotification()
+        }
+
     var isDeafened = false
+        set(value) {
+            field = value
+            if (value) {
+                isMicMuted = true
+            }
+            updateNotification()
+        }
 
     inner class LocalBinder : Binder() {
         fun getService(): MeshService = this@MeshService
@@ -42,7 +54,6 @@ class MeshService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // Initialize JNI Global Reference for callback
         nativeInitJni()
 
         meshManager = MeshNetworkManager(this)
@@ -51,7 +62,6 @@ class MeshService : Service() {
             updateNotification()
         }
 
-        // Link Network Receive -> Native Inject
         meshManager?.onAudioPacketReceived = { data ->
             if (!isDeafened) {
                 nativeInjectAudioPacket(data)
@@ -62,33 +72,19 @@ class MeshService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
-        when (action) {
+        when (intent?.action) {
             ACTION_START_AUDIO -> {
                 val secret = intent.getStringExtra(EXTRA_SECRET) ?: ""
                 val nickname = intent.getStringExtra(EXTRA_NICKNAME) ?: "User"
                 startAudio(secret, nickname)
             }
-            ACTION_STOP_AUDIO -> {
-                stopAudio()
-            }
+
+            ACTION_STOP_AUDIO -> stopAudio()
+            ACTION_TOGGLE_MIC_MUTE -> toggleMicMute()
+            ACTION_TOGGLE_DEAFEN -> toggleDeafen()
         }
         return START_STICKY
     }
-
-    // Called from C++ to send data (needs to be kept in MainActivity context or linked here?)
-    // Actually, JNI calls look for "Java_com_meshintercom_MainActivity_onNativeAudioData" or
-    // similar.
-    // If native lib is compiled to call MainActivity, we have a problem.
-    // However, usually we register natives or use standard naming.
-    // The current native-lib.cpp probably uses JNI_OnLoad and looks for a class.
-    // I need to check native-lib.cpp to see how it calls back to Java.
-    // If it calls MainActivity, I need to refactor C++ too, OR keep JNI in MainActivity and proxy
-    // to Service.
-    // Proxying is easier: MainActivity keeps JNI, receives byte[], sends to Service.
-    // BUT MainActivity can die. Service needs to hold the JNI interface.
-    // Let's assume for now I will check native-lib.cpp.
-    // For this step, I'll implement the logic assuming I'll fix JNI later.
 
     fun startAudio(secret: String, nickname: String) {
         if (_isAudioRunning.value) return
@@ -96,14 +92,13 @@ class MeshService : Service() {
         meshManager?.start(secret, nickname)
         nativeStartAudio()
         _isAudioRunning.value = true
-        _isAudioRunning.value = true
 
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(
-                    NOTIFICATION_ID,
-                    buildNotification(),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                NOTIFICATION_ID,
+                buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             )
         } else {
             startForeground(NOTIFICATION_ID, buildNotification())
@@ -117,54 +112,96 @@ class MeshService : Service() {
         meshManager?.stop()
         _isAudioRunning.value = false
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf() // Stop service if audio stops
+        stopSelf()
     }
 
-    // Called by MainActivity proxy (if we keep JNI there) OR by JNI directly (if we refactor)
     fun sendAudioPacket(data: ByteArray) {
         if (isMicMuted || isDeafened) return
         meshManager?.sendAudioPacket(data)
     }
 
-    // Called by JNI directly
     fun onNativeAudioData(data: ByteArray) {
         if (isMicMuted || isDeafened) return
         meshManager?.sendAudioPacket(data)
     }
 
+    private fun toggleMicMute() {
+        isMicMuted = !isMicMuted
+    }
+
+    private fun toggleDeafen() {
+        isDeafened = !isDeafened
+        if (!isDeafened) {
+            isMicMuted = false
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel =
-                    NotificationChannel(
-                            CHANNEL_ID,
-                            "Mesh Intercom Service",
-                            NotificationManager.IMPORTANCE_LOW
-                    )
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "Mesh Intercom Service",
+                    NotificationManager.IMPORTANCE_LOW
+                )
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(): Notification {
-        val pendingIntent =
-                Intent(this, MainActivity::class.java).let { notificationIntent ->
-                    PendingIntent.getActivity(
-                            this,
-                            0,
-                            notificationIntent,
-                            PendingIntent.FLAG_IMMUTABLE
-                    )
-                }
+        val openAppIntent = Intent(this, MainActivity::class.java)
+        val openAppPendingIntent =
+            PendingIntent.getActivity(
+                this,
+                REQUEST_OPEN_APP,
+                openAppIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
 
         val peerCount = _peers.value.size
+        val status = buildList {
+            if (isMicMuted) add("Mic muted")
+            if (isDeafened) add("Deafened")
+        }.joinToString(" • ")
+
+        val contentText =
+            if (status.isBlank()) "Connected to $peerCount peers" else "Connected to $peerCount peers • $status"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Intercom Active")
-                .setContentText("Connected to $peerCount peers")
-                .setSmallIcon(R.drawable.ic_logo_custom)
-                .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .build()
+            .setContentTitle("Intercom Active")
+            .setContentText(contentText)
+            .setSmallIcon(R.drawable.ic_logo_custom)
+            .setContentIntent(openAppPendingIntent)
+            .setOngoing(true)
+            .addAction(
+                if (isMicMuted) android.R.drawable.ic_lock_silent_mode_off else android.R.drawable.ic_btn_speak_now,
+                if (isMicMuted) "Unmute" else "Mute",
+                buildServiceActionPendingIntent(ACTION_TOGGLE_MIC_MUTE, REQUEST_TOGGLE_MIC)
+            )
+            .addAction(
+                if (isDeafened) android.R.drawable.ic_lock_silent_mode_off else android.R.drawable.ic_lock_silent_mode,
+                if (isDeafened) "Undeafen" else "Deafen",
+                buildServiceActionPendingIntent(ACTION_TOGGLE_DEAFEN, REQUEST_TOGGLE_DEAFEN)
+            )
+            .addAction(
+                android.R.drawable.ic_lock_power_off,
+                "Power Off",
+                buildServiceActionPendingIntent(ACTION_STOP_AUDIO, REQUEST_POWER_OFF)
+            )
+            .build()
+    }
+
+    private fun buildServiceActionPendingIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, MeshService::class.java).apply {
+            this.action = action
+        }
+        return PendingIntent.getService(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
     }
 
     private fun updateNotification() {
@@ -180,8 +217,6 @@ class MeshService : Service() {
         meshManager?.stop()
     }
 
-    // External native methods - need to be moved here?
-    // Yes, if Service controls lifecycle.
     external fun nativeStartAudio()
     external fun nativeStopAudio()
     external fun nativeInjectAudioPacket(data: ByteArray)
@@ -190,10 +225,19 @@ class MeshService : Service() {
     companion object {
         const val CHANNEL_ID = "MeshIntercomChannel"
         const val NOTIFICATION_ID = 1
+
         const val ACTION_START_AUDIO = "ACTION_START"
         const val ACTION_STOP_AUDIO = "ACTION_STOP"
+        const val ACTION_TOGGLE_MIC_MUTE = "ACTION_TOGGLE_MIC_MUTE"
+        const val ACTION_TOGGLE_DEAFEN = "ACTION_TOGGLE_DEAFEN"
+
         const val EXTRA_SECRET = "EXTRA_SECRET"
         const val EXTRA_NICKNAME = "EXTRA_NICKNAME"
+
+        private const val REQUEST_OPEN_APP = 100
+        private const val REQUEST_TOGGLE_MIC = 101
+        private const val REQUEST_TOGGLE_DEAFEN = 102
+        private const val REQUEST_POWER_OFF = 103
 
         init {
             System.loadLibrary("meshintercom")
