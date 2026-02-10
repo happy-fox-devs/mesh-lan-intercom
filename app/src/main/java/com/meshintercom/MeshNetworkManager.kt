@@ -16,14 +16,15 @@ import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 
 class MeshNetworkManager(private val context: Context) {
 
     private val connectionsClient = Nearby.getConnectionsClient(context)
     private val strategy = Strategy.P2P_CLUSTER
 
-    // private val serviceId = "com.meshintercom.SERVICE_ID" // Removed hardcoded ID
-    private var currentServiceId = ""
+    private val serviceId = "com.meshlanintercom.core"
+    private var currentChannelId = ""
 
     // Unique ID for this device in the mesh (Random Int)
     private val myMeshId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
@@ -50,7 +51,8 @@ class MeshNetworkManager(private val context: Context) {
     var onPeersChanged: ((List<String>) -> Unit)? = null
 
     fun start(secretKey: String, nickname: String) {
-        if (secretKey.isBlank()) {
+        val normalizedSecret = secretKey.trim()
+        if (normalizedSecret.isBlank()) {
             Log.e(TAG, "Cannot start with empty secret key")
             return
         }
@@ -58,18 +60,18 @@ class MeshNetworkManager(private val context: Context) {
             myNickname = nickname
         }
 
-        // Generate ServiceID based on Secret Key
-        // Service ID must be unique but common for the group.
-        // Format: com.meshintercom.chan.{HASH}
+        // Generate channel fingerprint from the secret key.
+        // Discovery/advertising always uses a fixed service ID because Nearby filters at the
+        // service level, while channel isolation is done at endpoint metadata level.
         val hash = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(secretKey.toByteArray(StandardCharsets.UTF_8))
+            .digest(normalizedSecret.lowercase(Locale.ROOT).toByteArray(StandardCharsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
             .take(8) // Take first 8 chars of hash for brevity
 
-        currentServiceId = "com.meshintercom.chan.$hash"
+        currentChannelId = hash
         Log.d(
             TAG,
-            "Starting Mesh with Service ID: $currentServiceId (Key: $secretKey, Name: $myNickname)"
+            "Starting Mesh with Service ID: $serviceId (Channel: $currentChannelId, Name: $myNickname)"
         )
 
         startAdvertising()
@@ -163,20 +165,20 @@ class MeshNetworkManager(private val context: Context) {
     }
 
     private fun startAdvertising() {
-        if (currentServiceId.isEmpty()) return
+        if (currentChannelId.isEmpty()) return
         val advertisingOptions = AdvertisingOptions.Builder().setStrategy(strategy).build()
         connectionsClient.startAdvertising(
-            myNickname, currentServiceId, connectionLifecycleCallback, advertisingOptions
+            buildEndpointName(), serviceId, connectionLifecycleCallback, advertisingOptions
         )
             .addOnSuccessListener { Log.d(TAG, "Started Advertising") }
             .addOnFailureListener { e -> Log.e(TAG, "Error starting Advertising", e) }
     }
 
     private fun startDiscovery() {
-        if (currentServiceId.isEmpty()) return
+        if (currentChannelId.isEmpty()) return
         val discoveryOptions = DiscoveryOptions.Builder().setStrategy(strategy).build()
         connectionsClient.startDiscovery(
-            currentServiceId, endpointDiscoveryCallback, discoveryOptions
+            serviceId, endpointDiscoveryCallback, discoveryOptions
         )
             .addOnSuccessListener { Log.d(TAG, "Started Discovery") }
             .addOnFailureListener { e -> Log.e(TAG, "Error starting Discovery", e) }
@@ -185,6 +187,10 @@ class MeshNetworkManager(private val context: Context) {
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
             Log.d(TAG, "Endpoint found: $endpointId (${info.endpointName})")
+            if (!isSameChannel(info.endpointName)) {
+                Log.d(TAG, "Ignoring endpoint from another channel: $endpointId")
+                return
+            }
             // In P2P_CLUSTER, anyone can request connection to anyone.
             // We automatically request connection.
             connectionsClient.requestConnection(myNickname, endpointId, connectionLifecycleCallback)
@@ -199,11 +205,16 @@ class MeshNetworkManager(private val context: Context) {
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
             Log.d(TAG, "Connection initiated: $endpointId (${info.endpointName})")
+            if (!isSameChannel(info.endpointName)) {
+                Log.w(TAG, "Rejecting endpoint from another channel: $endpointId")
+                connectionsClient.rejectConnection(endpointId)
+                return
+            }
             // Automatically accept connection
             connectionsClient.acceptConnection(endpointId, payloadCallback)
 
             // Store the endpoint name temporarily (will confirm on Result)
-            connectedEndpoints[endpointId] = info.endpointName
+            connectedEndpoints[endpointId] = extractNickname(info.endpointName)
             onPeersChanged?.invoke(connectedEndpoints.values.toList())
         }
 
@@ -239,5 +250,20 @@ class MeshNetworkManager(private val context: Context) {
 
     companion object {
         private const val TAG = "MeshNetworkManager"
+        private const val ENDPOINT_SEPARATOR = "#"
+    }
+
+    private fun buildEndpointName(): String = "$myNickname$ENDPOINT_SEPARATOR$currentChannelId"
+
+    private fun isSameChannel(endpointName: String): Boolean {
+        val parts = endpointName.split(ENDPOINT_SEPARATOR)
+        if (parts.size < 2 || currentChannelId.isEmpty()) return false
+        return parts.last() == currentChannelId
+    }
+
+    private fun extractNickname(endpointName: String): String {
+        val separatorIndex = endpointName.lastIndexOf(ENDPOINT_SEPARATOR)
+        if (separatorIndex <= 0) return endpointName
+        return endpointName.substring(0, separatorIndex)
     }
 }
